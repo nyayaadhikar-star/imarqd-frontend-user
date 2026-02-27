@@ -1,0 +1,1 @@
+console.log("iMARQd Frontend Loaded");
