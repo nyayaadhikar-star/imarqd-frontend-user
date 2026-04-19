@@ -1151,8 +1151,8 @@ body::before {
     <div class="login-logo-wrap">
       <div class="login-logo">🛡️</div>
     </div>
-    <h2>Welcome to iMARQd</h2>
-    <p class="login-subtitle">Protect your digital content</p>
+    <h2 id="authTitle">Welcome to iMARQd</h2>
+    <p class="login-subtitle" id="authSubtitle">Sign in to protect your digital content</p>
     <div id="loginError" class="login-error"></div>
     <div class="login-field-group">
       <label class="login-field-label" for="loginEmail">Email</label>
@@ -1164,7 +1164,8 @@ body::before {
     </div>
     <button class="login-btn" id="loginBtn">Sign In</button>
     <div class="login-footer">
-      <p class="login-footer-text">Digital rights protection by <a href="#">EnayaLabs</a></p>
+      <p class="login-footer-text" id="authToggleText">Don't have an account? <a href="#" id="authToggleLink">Sign Up</a></p>
+      <p class="login-footer-text" style="margin-top:8px;">Digital rights protection by <a href="#">EnayaLabs</a></p>
     </div>
   </div>
 </div>
