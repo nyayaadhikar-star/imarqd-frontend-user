@@ -1,101 +1,199 @@
 // js/auth.js
+// iMARQd — Real authentication wiring
+// Handles: login, signup (toggle), logout, session restore
+// Session stored as "imarqd_session" in localStorage — compatible with
+// watermark.js / verify.js / main.js that read the global SESSION variable.
 
 document.addEventListener("DOMContentLoaded", () => {
-  const loginBtn = document.getElementById("loginBtn");
-  const loginScreen = document.getElementById("loginScreen");
-  const app = document.getElementById("app");
-  const err = document.getElementById("loginError");
 
-  // Try multiple possible IDs (so we don't break on small HTML changes)
-  const emailEl =
-    document.getElementById("loginEmail") ||
-    document.getElementById("signupEmail") ||
-    document.getElementById("email");
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  const loginScreen    = document.getElementById("loginScreen");
+  const app            = document.getElementById("app");
+  const loginBtn       = document.getElementById("loginBtn");
+  const logoutBtn      = document.getElementById("logoutBtn");
+  const emailEl        = document.getElementById("loginEmail");
+  const passEl         = document.getElementById("loginPassword");
+  const errEl          = document.getElementById("loginError");
+  const authTitle      = document.getElementById("authTitle");
+  const authSubtitle   = document.getElementById("authSubtitle");
+  const authToggleText = document.getElementById("authToggleText");
 
-  const passEl =
-    document.getElementById("loginPassword") ||
-    document.getElementById("password") ||
-    document.getElementById("signupPassword");
+  if (!loginBtn) return; // guard: not on a page with login UI
 
-  // Restore session
-  const saved = localStorage.getItem("imarqd_session");
-  if (saved && loginScreen && app) {
-    SESSION = JSON.parse(saved);
-    loginScreen.style.display = "none";
-    app.style.display = "block";
+  // ── State ─────────────────────────────────────────────────────────────────
+  let authMode = "login"; // "login" | "signup"
+
+  // ── UI helpers ────────────────────────────────────────────────────────────
+  function showError(msg) {
+    errEl.textContent   = msg;
+    errEl.style.display = "block";
   }
 
-  if (!loginBtn) return;
+  function clearError() {
+    errEl.textContent   = "";
+    errEl.style.display = "none";
+  }
 
-  loginBtn.addEventListener("click", async () => {
-    if (!emailEl || !passEl) {
-      if (err) {
-        err.style.display = "block";
-        err.innerText =
-          "Login inputs not found. Check IDs: loginEmail/loginPassword in index.html.";
-      }
-      console.error("Missing login input elements", { emailEl, passEl });
-      return;
+  function setLoading(on) {
+    loginBtn.disabled    = on;
+    loginBtn.textContent = on
+      ? (authMode === "login" ? "Signing in\u2026" : "Creating account\u2026")
+      : (authMode === "login" ? "Sign In"           : "Create Account");
+  }
+
+  // ── Session helpers ───────────────────────────────────────────────────────
+  function saveSession(data) {
+    SESSION = {
+      token:     data.token,
+      uuid:      data.uuid,
+      email:     data.email,
+      email_sha: data.email_sha,
+      apiBase:   API()
+    };
+    localStorage.setItem("imarqd_session", JSON.stringify(SESSION));
+  }
+
+  function clearSessionData() {
+    SESSION = null;
+    localStorage.removeItem("imarqd_session");
+  }
+
+  function showApp() {
+    if (loginScreen) loginScreen.style.display = "none";
+    if (app)         app.style.display         = "block";
+  }
+
+  function showLogin() {
+    if (app)         app.style.display         = "none";
+    if (loginScreen) loginScreen.style.display = "";
+    if (emailEl)     emailEl.value             = "";
+    if (passEl)      passEl.value              = "";
+    clearError();
+  }
+
+  // ── Login / Signup toggle ─────────────────────────────────────────────────
+  function setMode(mode) {
+    authMode = mode;
+    if (mode === "login") {
+      if (authTitle)    authTitle.textContent    = "Welcome to iMARQd";
+      if (authSubtitle) authSubtitle.textContent = "Sign in to protect your digital content";
+      loginBtn.textContent = "Sign In";
+      if (authToggleText)
+        authToggleText.innerHTML =
+          'Don\'t have an account? <a href="#" id="authToggleLink">Sign Up</a>';
+    } else {
+      if (authTitle)    authTitle.textContent    = "Create your account";
+      if (authSubtitle) authSubtitle.textContent = "Start protecting your digital content";
+      loginBtn.textContent = "Create Account";
+      if (authToggleText)
+        authToggleText.innerHTML =
+          'Already have an account? <a href="#" id="authToggleLink">Sign In</a>';
     }
+    const link = document.getElementById("authToggleLink");
+    if (link) link.addEventListener("click", handleToggle);
+    clearError();
+  }
 
-    const email = (emailEl.value || "").trim();
-    const password = (passEl.value || "").trim();
+  function handleToggle(e) {
+    e.preventDefault();
+    setMode(authMode === "login" ? "signup" : "login");
+  }
 
-    if (err) err.style.display = "none";
+  // ── API call ──────────────────────────────────────────────────────────────
+  // Reads body as text first so a plain-text 500 never throws a JSON parse crash
+  async function callAuthAPI(email, password) {
+    const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/signup";
 
-    if (!email || !password) {
-      if (err) {
-        err.innerText = "Email and password required";
-        err.style.display = "block";
-      }
-      return;
-    }
-
+    let res;
     try {
-      const res = await fetch(API() + "/api/auth/login", {
-        method: "POST",
+      res = await fetch(API() + endpoint, {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body:    JSON.stringify({ email, password })
       });
-
-      if (!res.ok) throw new Error("Invalid credentials");
-
-      const data = await res.json();
-
-      SESSION = {
-  token: data.token,
-  email: data.email,
-  uuid: data.uuid,
-  email_sha: data.email_sha,
-  apiBase: API()   // ✅ important
-};
-
-      localStorage.setItem("imarqd_session", JSON.stringify(SESSION));
-
-      if (loginScreen) loginScreen.style.display = "none";
-      if (app) app.style.display = "block";
-    } catch (e) {
-      if (err) {
-        err.innerText = e.message;
-        err.style.display = "block";
-      }
+    } catch (networkErr) {
+      throw new Error("Network error \u2014 please check your connection and try again.");
     }
-  });
-});
 
+    // Safe parse: server may return plain text on 5xx (e.g. Azure "Internal Server Error")
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (_) {}
 
-// Logout (global so other modules can use it)
-window.doLogout = function () {
-  SESSION = null;
-  localStorage.removeItem("imarqd_session");
+    if (!res.ok) {
+      const detail = data && data.detail;
+      if (Array.isArray(detail))      throw new Error(detail.map(d => d.msg).join(", "));
+      if (typeof detail === "string") throw new Error(detail);
+      // Non-JSON body or unrecognised shape — show a friendly message
+      throw new Error(
+        authMode === "login"
+          ? "Login failed. Please check your credentials and try again."
+          : "Could not create account. Please try again later."
+      );
+    }
 
-  const loginScreen = document.getElementById("loginScreen");
-  const app = document.getElementById("app");
-  if (app) app.style.display = "none";
-  if (loginScreen) loginScreen.style.display = "flex";
-};
+    return data; // { token, uuid, email, email_sha }
+  }
 
-document.addEventListener("DOMContentLoaded", () => {
-  const logoutBtn = document.getElementById("logoutBtn");
+  // ── Submit ────────────────────────────────────────────────────────────────
+  async function handleSubmit() {
+    clearError();
+    const email    = (emailEl ? emailEl.value : "").trim();
+    const password = passEl ? passEl.value : "";
+
+    if (!email)              { showError("Please enter your email address."); return; }
+    if (!password)           { showError("Please enter your password."); return; }
+    if (password.length < 6) { showError("Password must be at least 6 characters."); return; }
+
+    setLoading(true);
+    try {
+      const data = await callAuthAPI(email, password);
+      saveSession(data);
+      showApp();
+    } catch (e) {
+      showError(e.message || "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Logout ────────────────────────────────────────────────────────────────
+  window.doLogout = async function () {
+    if (SESSION && SESSION.token) {
+      try {
+        await fetch(API() + "/api/auth/logout", {
+          method:  "POST",
+          headers: { "Authorization": SESSION.token }
+        });
+      } catch (_) {}
+    }
+    clearSessionData();
+    showLogin();
+  };
+
   if (logoutBtn) logoutBtn.addEventListener("click", window.doLogout);
+
+  // ── Keyboard UX ───────────────────────────────────────────────────────────
+  if (emailEl) emailEl.addEventListener("keydown", function(e) { if (e.key === "Enter" && passEl) passEl.focus(); });
+  if (passEl)  passEl.addEventListener("keydown",  function(e) { if (e.key === "Enter") handleSubmit(); });
+  loginBtn.addEventListener("click", handleSubmit);
+
+  const initialToggle = document.getElementById("authToggleLink");
+  if (initialToggle) initialToggle.addEventListener("click", handleToggle);
+
+  // ── Restore session on page load ──────────────────────────────────────────
+  const saved = localStorage.getItem("imarqd_session");
+  if (saved) {
+    try {
+      SESSION = JSON.parse(saved);
+      SESSION.apiBase = API();
+      showApp();
+    } catch (_) {
+      clearSessionData();
+      showLogin();
+    }
+  } else {
+    showLogin();
+  }
+
 });
